@@ -17,6 +17,7 @@ type HostsStorage struct {
 
 type Host struct {
 	mu         *sync.RWMutex
+	inWork     bool
 	RTT        int64
 	lastUpdate int64
 	status     bool
@@ -31,6 +32,7 @@ func (hostsStorage *HostsStorage) create(host string) {
 	if hostsStorage.hosts[host] == nil {
 		hostsStorage.hosts[host] = &Host{
 			mu:         &sync.RWMutex{},
+			inWork:     false,
 			status:     false,
 			RTT:        0,
 			lastUpdate: 0,
@@ -48,7 +50,7 @@ func (hostsStorage *HostsStorage) set(host string, status bool) {
 		hostsStorage.hosts[host].status = status
 		hostsStorage.hosts[host].lastUpdate = time.Now().Unix()
 	}
-
+	hostsStorage.hosts[host].inWork = false
 	hostsStorage.mu.Unlock()
 }
 

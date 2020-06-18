@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"io"
-	"log"
 	"net/http"
 	"runtime"
 	"time"
@@ -15,31 +14,33 @@ var extractedHost *Host
 var marshaledMessage []byte
 
 func main() {
-
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
-	workerPool = newPool(runtime.NumCPU() * 2)
+	config := createConfig()
+	config.parse()
+
+	workerPool = newPool(config.pingerConfig.numbersOfWorker)
 	workerPool.start()
 	/*	workerPool.addTask("1.1.1.2")
 		workerPool.addTask("1.1.1.1")
 		workerPool.addTask("8.8.8.8")*/
 
 	go Updater()
-
-	http.HandleFunc("/addHost", addHostHandler)
-	http.HandleFunc("/delHost", delHostHandler)
-	http.HandleFunc("/getHost", getHostHandler)
-	http.HandleFunc("/updateHost", addHostHandler)
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	startHttpServer(config)
 }
 
 func addHostHandler(responseWriter http.ResponseWriter, request *http.Request) {
 	if val, ok := request.URL.Query()["ip"]; ok {
 		if val[0] != "" {
 			httpQueryHost = val[0]
-			workerPool.addTask(httpQueryHost)
 			responseWriter.Header().Set("Content-Type", "text/html")
-			_, _ = io.WriteString(responseWriter, "ok")
+
+			if hostsStorage.hosts[httpQueryHost] != nil && hostsStorage.hosts[httpQueryHost].inWork {
+				_, _ = io.WriteString(responseWriter, "host is busy")
+			} else {
+				workerPool.addNewHost(httpQueryHost)
+				_, _ = io.WriteString(responseWriter, "ok")
+			}
 		}
 	}
 }
@@ -86,8 +87,10 @@ type HttpResponseTemplate struct {
 func Updater() {
 	time.Sleep(60 * time.Second)
 	for {
-		for key := range hostsStorage.hosts {
-			workerPool.addTask(key)
+		for key, host := range hostsStorage.hosts {
+			if !host.inWork {
+				workerPool.addTask(key)
+			}
 		}
 		time.Sleep(2 * time.Second)
 	}

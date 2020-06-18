@@ -32,8 +32,14 @@ func newPingerService() *PingerService {
 }
 
 func (pingerService *PingerService) ping(host string) bool {
+	if hostsStorage.hosts[host].inWork {
+		return false
+	}
+	hostsStorage.hosts[host].inWork = true
+
 	var err error
 	res := false
+
 	hostsStorage.hosts[host].mu.Lock()
 	defer hostsStorage.hosts[host].mu.Unlock()
 
