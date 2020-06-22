@@ -86,7 +86,7 @@ func (pingerService *PingerService) ping(host string) bool {
 	switch responseMessage.Type {
 	case ipv4.ICMPTypeEchoReply:
 		res = true
-		hostsStorage.hosts[host].RTT = time.Since(pingerService.startTime).Milliseconds()
+		hostsStorage.hosts[host].RTT = int64(time.Since(pingerService.startTime)/1e6)
 	default:
 		res = false
 		hostsStorage.hosts[host].RTT = -1
