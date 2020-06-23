@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"sync"
 )
 
@@ -40,7 +39,7 @@ func (p *pool) addNewHost(host string) {
 
 func (p *pool) start() {
 	for i := 0; i < p.numOfWorkers; i++ {
-		go p.startWorker()
+		go p.worker()
 	}
 
 	for i := 0; i < p.numOfWorkers; i++ {
@@ -48,17 +47,16 @@ func (p *pool) start() {
 	}
 }
 
-func (p *pool) startWorker() {
+func (p *pool) worker() {
 	pingerService := newPingerService()
 	pingResult := false
+	var err error
 	for {
-		select {
-		case host := <-p.taskQueue:
-			fmt.Println("host from queue:",host)
-			pingResult = pingerService.ping(host)
-			fmt.Println("host result from queue:",pingResult)
-			hostsStorage.set(host, pingResult)
-			fmt.Println("host ok")
+		for host := range p.taskQueue {
+			err, pingResult = pingerService.ping(host)
+			if err == nil {
+				hostsStorage.set(host, pingResult)
+			}
 		}
 	}
 }
@@ -66,14 +64,14 @@ func (p *pool) startWorker() {
 func (p *pool) newHostWorker() {
 	pingerService := newPingerService()
 	pingResult := false
+	var err error
 	for {
-		select {
-		case host := <-p.newHostQueue:
+		for host := range p.newHostQueue {
 			hostsStorage.create(host)
-			fmt.Println("new host from queue:",host)
-			pingResult = pingerService.ping(host)
-			fmt.Println("new host result from queue:",pingResult)
-			hostsStorage.set(host, pingResult)
+			err, pingResult = pingerService.ping(host)
+			if err == nil {
+				hostsStorage.set(host, pingResult)
+			}
 		}
 	}
 }

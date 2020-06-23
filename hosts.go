@@ -42,6 +42,10 @@ func (hostsStorage *HostsStorage) create(host string) {
 		}
 	}
 	hostsStorage.mu.Unlock()
+
+	updater.mu.Lock()
+	updater.hosts = append(updater.hosts, host)
+	updater.mu.Unlock()
 }
 
 func (hostsStorage *HostsStorage) set(host string, status bool) {
@@ -68,4 +72,20 @@ func (hostsStorage *HostsStorage) delete(host string) {
 	hostsStorage.mu.Lock()
 	delete(hostsStorage.hosts, host)
 	hostsStorage.mu.Unlock()
+
+	updater.mu.Lock()
+	for i := range updater.hosts {
+		if host == updater.hosts[i] {
+			updater.hosts[i] = updater.hosts[len(updater.hosts)-1]
+			updater.hosts[len(updater.hosts)-1] = ""
+			updater.hosts = updater.hosts[:len(updater.hosts)-1]
+		}
+	}
+	updater.mu.Unlock()
+}
+
+func (host *Host) setRTT(rtt int64) {
+	host.mu.Lock()
+	host.RTT = rtt
+	host.mu.Unlock()
 }

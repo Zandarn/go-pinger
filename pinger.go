@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"
 	"net"
@@ -8,7 +9,7 @@ import (
 	"time"
 )
 
-const ResponseTimeout = 200 //ms
+var ResponseTimeout = 50 //ms
 
 type PingerService struct {
 	startTime             time.Time
@@ -31,65 +32,70 @@ func newPingerService() *PingerService {
 	}
 }
 
-func (pingerService *PingerService) ping(host string) bool {
-	if hostsStorage.hosts[host].inWork {
-		return false
+func (pingerService *PingerService) ping(hostIP string) (error,bool) {
+
+	var pingError error = nil
+	_, host := hostsStorage.get(hostIP)
+
+	if host.inWork {
+		pingError = errors.New("host is busy")
+		return pingError,false
 	}
-	hostsStorage.hosts[host].inWork = true
+
+	host.mu.Lock()
+
+	host.inWork = true
 
 	var err error
 	res := false
 
-	hostsStorage.hosts[host].mu.Lock()
-	defer hostsStorage.hosts[host].mu.Unlock()
+	host.socket, _ = icmp.ListenPacket("ip4:icmp", "0.0.0.0")
+	defer host.socket.Close()
 
-	hostsStorage.hosts[host].socket, _ = icmp.ListenPacket("ip4:icmp", "0.0.0.0")
-	defer hostsStorage.hosts[host].socket.Close()
-
-	peer := hostsStorage.hosts[host].peer
-
-	if _, err := hostsStorage.hosts[host].socket.WriteTo(pingerService.marshalledIcmpMessage, &net.IPAddr{IP: net.ParseIP(host)}); err != nil {
-		hostsStorage.hosts[host].RTT = -1
-		return false
+	peer := host.peer
+	host.mu.Unlock()
+	if _, err := host.socket.WriteTo(pingerService.marshalledIcmpMessage, &net.IPAddr{IP: net.ParseIP(hostIP)}); err != nil {
+		host.setRTT(-1)
+		return pingError,false
 	}
 
 	pingerService.startTime = time.Now()
-
-	readBuffer := hostsStorage.hosts[host].readBuffer
+	host.mu.Lock()
+	readBuffer := host.readBuffer
 	endPosition := 0
 
 	go func() {
-		endPosition, peer, err = hostsStorage.hosts[host].socket.ReadFrom(readBuffer)
+		endPosition, peer, err = host.socket.ReadFrom(readBuffer)
 		if err != nil {
 			res = false
 		} else {
-			hostsStorage.hosts[host].channel <- true
+			host.channel <- true
 		}
 	}()
 
 	select {
-	case <-hostsStorage.hosts[host].channel:
+	case <-host.channel:
 		res = true
-		//fmt.Println(host, "ok")
-	case <-time.After(time.Millisecond * ResponseTimeout):
+		//fmt.Println(hostIP, "ok")
+	case <-time.After(time.Millisecond * time.Duration(ResponseTimeout)):
 		res = false
-		//fmt.Println(host, "timeout")
+		//fmt.Println(hostIP, "timeout")
 	}
-
+	host.mu.Unlock()
 	responseMessage, err := icmp.ParseMessage(ipv4.ICMPTypeEcho.Protocol(), readBuffer[:endPosition])
 	if err != nil {
 		res = false
-		hostsStorage.hosts[host].RTT = -1
-		return res
+		host.setRTT(-1)
+		return pingError,res
 	}
 
 	switch responseMessage.Type {
 	case ipv4.ICMPTypeEchoReply:
 		res = true
-		hostsStorage.hosts[host].RTT = int64(time.Since(pingerService.startTime)/1e6)
+		host.setRTT(int64(time.Since(pingerService.startTime) / 1e6))
 	default:
 		res = false
-		hostsStorage.hosts[host].RTT = -1
+		host.setRTT(-1)
 	}
-	return res
+	return pingError,res
 }

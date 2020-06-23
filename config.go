@@ -63,6 +63,12 @@ func (config *Config) parse() {
 		numbersOfWorker = runtime.NumCPU() * 2
 	}
 	config.pingerConfig.numbersOfWorker = numbersOfWorker
+
+	responseTimeout, err := cfg.Section("PINGER").Key("MaxRTT").Int()
+	if err != nil {
+		responseTimeout = 50
+	}
+	ResponseTimeout = responseTimeout
 }
 
 func (config *Config) erase() {
